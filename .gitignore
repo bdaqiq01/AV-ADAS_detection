@@ -16,3 +16,53 @@ bin-release/
 # Project files, i.e. `.project`, `.actionScriptProperties` and `.flexProperties`
 # should NOT be excluded as they contain compiler settings and other important
 # information for Eclipse / Flash Builder.
+
+# Python virtual environment
+.venv/
+venv/
+
+# Local secrets
+.env
+.env.*
+*.env
+
+# Large datasets / generated artifacts (do not commit)
+lisa-road-signs-v2/
+lisa-stop-only/
+lisa_stop_yolo_dataset/
+LISA_yiels/
+signalAhead/
+speedlimit/
+speedPerce/
+project528/
+data/
+cat_stop_split/
+speedlimit_Classified/
+
+# Image + label dataset folders anywhere in the tree
+# (combined/data.yaml and speedlimit_yolo_split/dataset.yaml stay tracked)
+**/images/
+**/labels/
+combined/images/
+combined/labels/
+speedlimit_yolo_split/train/
+speedlimit_yolo_split/val/
+speedlimit_yolo_split/test/
+speedlimit_yolo_split/
+
+# Training outputs
+
+stop_sign_figures/
+
+# Model weights / binaries
+*.pt
+*.pth
+*.onnx
+
+# Logs and job pid files
+*.log
+*.pid
+
+# Executed notebooks (outputs embedded, large diffs)
+*_executed.ipynb
+*.executed.ipynb
