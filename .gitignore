@@ -3,6 +3,13 @@ bin-debug/
 bin-release/
 [Oo]bj/
 [Bb]in/
+build/
+build-*/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+compile_commands.json
 
 # Other files and folders
 .settings/
@@ -38,6 +45,7 @@ project528/
 data/
 cat_stop_split/
 speedlimit_Classified/
+test_inputs/Video_Project.mp4
 
 # Image + label dataset folders anywhere in the tree
 # (combined/data.yaml and speedlimit_yolo_split/dataset.yaml stay tracked)
