@@ -58,6 +58,8 @@ stop_sign_figures/
 *.pt
 *.pth
 *.onnx
+!converting_models/*.pt
+!converting_models/*.onnx
 
 # Logs and job pid files
 *.log
