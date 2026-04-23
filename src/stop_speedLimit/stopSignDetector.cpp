@@ -19,6 +19,7 @@ stopSignDetect::~stopSignDetect()
 bool stopSignDetect::loadEngine(const std::string& enginePath) //loads the model engine 
 {
     cout << "loading engine " <<endl; 
+    return -1;
 }
 
 
@@ -35,7 +36,7 @@ vector<float> stopSignDetect::inferRaw(const cv::Mat& frame) //raw ouput
 }
 
 
-svector<Detection> stopSignDetect::detect(const cv::Mat& frame)
+vector<Detection> stopSignDetect::detect(const cv::Mat& frame)
 {
 
     vector<Detection> detecs;

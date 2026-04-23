@@ -11,7 +11,7 @@ struct Detection {
     float confidence;
     int class_id;
     std::string label; 
-}
+};
 
 class stopSignDetect{
 
