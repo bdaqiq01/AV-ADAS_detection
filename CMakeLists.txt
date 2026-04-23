@@ -14,11 +14,15 @@ find_package(OpenCV REQUIRED)
 add_executable(adas
     app/main.cpp
     src/lane/LaneDetect.cpp
+    src/stop_speedLimit/stopSignDetector.cpp
 )
 
 target_include_directories(adas PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/lane
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/stop_speedLimit
     ${OpenCV_INCLUDE_DIRS}
 )
 
-target_link_libraries(adas PRIVATE ${OpenCV_LIBS})
+target_link_libraries(adas PRIVATE
+    ${OpenCV_LIBS}
+)

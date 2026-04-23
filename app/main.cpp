@@ -6,6 +6,10 @@
 #include "opencv2/videoio.hpp"
 
 #include "LaneDetect.h"
+#include "stopSignDetector.h"
+
+#include "stopSignDetector.h" //class for the stop sing detection 
+using namespace std; 
 
 // See www.asciitable.com
 #define ESCAPE_KEY (27)
@@ -49,6 +53,14 @@ int main(int argc, char** argv)
         vcCap.open(camera);
     }
 
+    //loading the stop sing engine
+    stopSignDetect stopDetector; 
+    if (!stopDetector.loadEngine("models/stop.engine")) //checking for the engine fail
+    {
+        cerr << "Failed to load the stop.engine. \n";
+        return -1;
+    }
+
     while (true) {
         cv::Mat matFrame;
         vcCap.read(matFrame);
@@ -67,6 +79,12 @@ int main(int argc, char** argv)
         };
 
         cv::Mat matHoughFrame = laneDetect.runHough(matFrame, params);
+
+        //stop sing 
+        vector <float> rawoutput = stopDetector.inferRaw(matFrame);
+        cout << "Raw output size: " << rawoutput.size() <<endl; 
+        
+
 
         cv::imshow("source", matFrame);
         cv::imshow("hough probabilistic", matHoughFrame);
