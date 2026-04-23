@@ -4,6 +4,13 @@
 
 using namespace std; 
 
+void Logger::log(Severity severity, const char* msg) noexcept
+{
+    if (severity <= Severity::kWARNING) {
+        cout << msg << endl;
+    }
+}
+
 
 stopSignDetect::stopSignDetect()
 {
@@ -12,16 +19,19 @@ stopSignDetect::stopSignDetect()
 
 stopSignDetect::~stopSignDetect()
 {
-    cout << "stopSignDetect destroyed" << endl;
-}
+    if (context) {
+        delete context;
+        context = nullptr;
+    }
 
+    if (engine) {
+        delete engine;
+        engine = nullptr;
+    }
 
-bool stopSignDetect::loadEngine(const std::string& enginePath) //loads the model engine 
-{
-    cout << "loading engine " <<endl; 
-    return -1;
-}
-
+    if (runtime) {
+        delete runtime;
+        runtime = nullptr;
 
 vector<float> stopSignDetect::inferRaw(const cv::Mat& frame) //raw ouput 
 {
