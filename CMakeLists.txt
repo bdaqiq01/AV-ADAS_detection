@@ -21,8 +21,16 @@ target_include_directories(adas PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/lane
     ${CMAKE_CURRENT_SOURCE_DIR}/src/stop_speedLimit
     ${OpenCV_INCLUDE_DIRS}
+    /usr/local/cuda-12.6/targets/aarch64-linux/include
+)
+
+target_link_directories(adas PRIVATE
+    /usr/lib/aarch64-linux-gnu
+    /usr/local/cuda-12.6/targets/aarch64-linux/lib
 )
 
 target_link_libraries(adas PRIVATE
     ${OpenCV_LIBS}
+    nvinfer
+    cudart
 )
