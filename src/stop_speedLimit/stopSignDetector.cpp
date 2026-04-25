@@ -215,8 +215,8 @@ bool stopSignDetect::loadEngine(const string& enginePath)
 
 vector<float> stopSignDetect::inferRaw(const cv::Mat& frame)
 {
-    cout << "inferRaw called frame size "
-         << frame.cols << "x" << frame.rows << endl;
+    //cout << "inferRaw called frame size "
+        // << frame.cols << "x" << frame.rows << endl;
 
     vector<float> inputData = preprocess(frame);
     vector<float> outputData(outputBytes / sizeof(float));
