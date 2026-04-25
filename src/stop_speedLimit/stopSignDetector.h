@@ -6,6 +6,9 @@
 #include<vector>
 #include<opencv2/core.hpp> 
 #include <NvInfer.h>
+#include <cuda_runtime_api.h>
+
+
 
 struct Detection {
     cv::Rect box; 
@@ -34,6 +37,7 @@ class stopSignDetect{
     private:
 
     std::vector<char> readEngineFile(const std::string& enginePath);
+    std::vector<float> preprocess(const cv::Mat& frame);
 
     Logger logger;
 
@@ -43,6 +47,17 @@ class stopSignDetect{
 
     std::string inputTensorName;
     std::string outputTensorName;
+
+    int inputW;
+    int inputH;
+    int inputC;
+    
+    size_t inputBytes;
+    size_t outputBytes;
+
+    void* dInput;
+    void* dOutput;
+    cudaStream_t stream;
 
 };
 
