@@ -10,9 +10,8 @@
 #include "opencv2/videoio.hpp"
 
 #include "LaneDetect.h"
-#include "stopSignDetector.h"
+#include "yoloDetector.h"
 
-#include "stopSignDetector.h" //class for the stop sing detection 
 using namespace std; 
 
 #define ESCAPE_KEY (27)
@@ -100,14 +99,38 @@ int main(int argc, char** argv)
 	 }
 	
     
-    //loading the stop sing engine
-    stopSignDetect stopDetector; 
-    if (!stopDetector.loadEngine("models/stop.engine")) //checking for the engine fail
+    //loading the stop sign detector (single class)
+    vector<string> stopClasses = { "STOP" };
+    YoloDetector stopDetector(stopClasses, 0.50f, 0.45f);
+    if (!stopDetector.loadEngine("models/stop.engine"))
     {
         cerr << "Failed to load the stop.engine. \n";
         return -1;
     }
- 
+
+    //loading the speed limit detector (14 classes, 10-75 mph in 5 mph steps)
+    vector<string> speedClasses = {
+        "SPEED 10",
+        "SPEED 15",
+        "SPEED 20",
+        "SPEED 25",
+        "SPEED 30",
+        "SPEED 35",
+        "SPEED 40",
+        "SPEED 45",
+        "SPEED 50",
+        "SPEED 55",
+        "SPEED 60",
+        "SPEED 65",
+        "SPEED 70",
+        "SPEED 75"
+    };
+    YoloDetector speedDetector(speedClasses, 0.40f, 0.45f);
+    if (!speedDetector.loadEngine("models/speedlimit.engine"))
+    {
+        cerr << "Failed to load the speedlimit.engine. \n";
+        return -1;
+    }
 
 
     //FPS tracking 
@@ -136,16 +159,24 @@ int main(int argc, char** argv)
             maxLineGap
         };
 
-		//caling the lane detector 
+		//per-stage timing
+		auto tLaneStart = chrono::steady_clock::now();
+        //lane detection
         cv::Mat finalFrame = laneDetect.runHough(matFrame, params);
-        
+		auto tLaneEnd = chrono::steady_clock::now();
+
 		//stop sign detector 
-        vector<Detection> detections = stopDetector.detect(matFrame);
-        
-        //drawing the bb on the final fram 
-        for (const auto& det : detections) {
+        vector<Detection> stopDetections = stopDetector.detect(matFrame);
+		auto tStopEnd = chrono::steady_clock::now();
+
+        //speed limit detector
+        vector<Detection> speedDetections = speedDetector.detect(matFrame);
+        auto tSpeedEnd = chrono::steady_clock::now();
+
+        //draw stop signs in green
+        for (const auto& det : stopDetections) {
             cv::rectangle(finalFrame, det.box, cv::Scalar(0, 255, 0), 2);
-        
+
             string text = det.label + " " + to_string(det.confidence).substr(0, 4);
             cv::putText(finalFrame,
                         text,
@@ -153,6 +184,20 @@ int main(int argc, char** argv)
                         cv::FONT_HERSHEY_SIMPLEX,
                         0.6,
                         cv::Scalar(0, 255, 0),
+                        2);
+        }
+
+        //draw speed limits in yellow
+        for (const auto& det : speedDetections) {
+            cv::rectangle(finalFrame, det.box, cv::Scalar(0, 255, 255), 2);
+
+            string text = det.label + " " + to_string(det.confidence).substr(0, 4);
+            cv::putText(finalFrame,
+                        text,
+                        cv::Point(det.box.x, det.box.y - 10),
+                        cv::FONT_HERSHEY_SIMPLEX,
+                        0.6,
+                        cv::Scalar(0, 255, 255),
                         2);
         }
 	
@@ -165,13 +210,23 @@ int main(int argc, char** argv)
             currentFPS = frameCount / elapsedSeconds;
         }
 
-        // Print FPS once per second
+        //print fps + per-stage timing once per second
         double sinceLastPrint =
             chrono::duration_cast<chrono::milliseconds>(now - lastFpsPrintTime).count() / 1000.0;
 
         if (sinceLastPrint >= 1.0) {
-            cout << "Frames processed: " << frameCount
-                 << " | Average FPS: " << currentFPS << endl;
+            double laneMs  = chrono::duration<double, milli>(tLaneEnd  - tLaneStart).count();
+            double stopMs  = chrono::duration<double, milli>(tStopEnd  - tLaneEnd  ).count();
+            double speedMs = chrono::duration<double, milli>(tSpeedEnd - tStopEnd  ).count();
+            double totalMs = chrono::duration<double, milli>(tSpeedEnd - tLaneStart).count();
+
+            cout << "Frames: " << frameCount
+                 << " | FPS: "  << currentFPS
+                 << " | lane: " << laneMs  << "ms"
+                 << " | stop: " << stopMs  << "ms"
+                 << " | speed: "<< speedMs << "ms"
+                 << " | total: "<< totalMs << "ms"
+                 << endl;
             lastFpsPrintTime = now;
         } 
 

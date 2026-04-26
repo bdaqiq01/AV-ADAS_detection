@@ -1,10 +1,11 @@
 
-#include "stopSignDetector.h"
+#include "yoloDetector.h"
 #include <fstream>
 #include <iostream>
 #include <vector>
 #include <algorithm>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/dnn.hpp>
 
 using namespace std; 
 
@@ -16,24 +17,36 @@ void Logger::log(Severity severity, const char* msg) noexcept
 }
 
 
-stopSignDetect::stopSignDetect()
+YoloDetector::YoloDetector()
+    : YoloDetector(vector<string>{"OBJECT"}, 0.50f, 0.45f)
+{
+}
+
+YoloDetector::YoloDetector(const vector<string>& classNames,
+                           float confThreshold,
+                           float nmsThreshold)
     : runtime(nullptr),
       engine(nullptr),
       context(nullptr),
       inputW(0),
       inputH(0),
       inputC(0),
+      numClasses_(0),
+      numPreds_(0),
       inputBytes(0),
       outputBytes(0),
       dInput(nullptr),
       dOutput(nullptr),
-      stream(nullptr)
+      stream(nullptr),
+      classNames_(classNames),
+      confThreshold_(confThreshold),
+      nmsThreshold_(nmsThreshold)
 {
-    cout << "stopSignDetect created" << endl;
+    cout << "yoloDetector created" << endl;
 }
 
 
-stopSignDetect::~stopSignDetect()
+YoloDetector::~YoloDetector()
 {
     if (dInput) {
         cudaFree(dInput);
@@ -64,14 +77,13 @@ stopSignDetect::~stopSignDetect()
         runtime = nullptr;
     }
 
-    cout << "stopSignDetect destroyed" << endl;
+    cout << "yoloDetector destroyed" << endl;
 }
 
 
 
 
-
-vector<char> stopSignDetect::readEngineFile(const string& enginePath)
+vector<char> YoloDetector::readEngineFile(const string& enginePath)
 {
     ifstream file(enginePath, ios::binary);
 
@@ -103,7 +115,7 @@ vector<char> stopSignDetect::readEngineFile(const string& enginePath)
     return engineData;
 }
 
-bool stopSignDetect::loadEngine(const string& enginePath)
+bool YoloDetector::loadEngine(const string& enginePath)
 {
     cout << "Loading engine..." << endl;
 
@@ -181,8 +193,31 @@ bool stopSignDetect::loadEngine(const string& enginePath)
     }
     outputBytes = outputCount * sizeof(float);
 
+    // yolov8/yolov11 export layout: [1, 4 + numClasses, numPreds]
+    // channels 0..3 = box (x,y,w,h), channels 4..(3+C) = per-class scores
+    if (outputDims.nbDims >= 3) {
+        numClasses_ = outputDims.d[1] - 4;
+        numPreds_   = outputDims.d[2];
+    } else {
+        cerr << "Unexpected output tensor rank: " << outputDims.nbDims << endl;
+        return false;
+    }
+
+    if (numClasses_ <= 0 || numPreds_ <= 0) {
+        cerr << "Invalid derived dims: numClasses=" << numClasses_
+             << " numPreds=" << numPreds_ << endl;
+        return false;
+    }
+
+    // warn if user-provided class name list size doesn't match the engine
+    if (!classNames_.empty() && static_cast<int>(classNames_.size()) != numClasses_) {
+        cerr << "Warning: classNames size (" << classNames_.size()
+             << ") != engine numClasses (" << numClasses_ << ")." << endl;
+    }
+
     cout << "Input tensor name: " << inputTensorName << endl;
     cout << "Output tensor name: " << outputTensorName << endl;
+    cout << "numClasses: " << numClasses_ << " | numPreds: " << numPreds_ << endl;
     cout << "Input bytes: " << inputBytes << endl;
     cout << "Output bytes: " << outputBytes << endl;
 
@@ -213,11 +248,8 @@ bool stopSignDetect::loadEngine(const string& enginePath)
 
 
 
-vector<float> stopSignDetect::inferRaw(const cv::Mat& frame)
+vector<float> YoloDetector::inferRaw(const cv::Mat& frame)
 {
-    //cout << "inferRaw called frame size "
-        // << frame.cols << "x" << frame.rows << endl;
-
     vector<float> inputData = preprocess(frame);
     vector<float> outputData(outputBytes / sizeof(float));
 
@@ -271,7 +303,7 @@ vector<float> stopSignDetect::inferRaw(const cv::Mat& frame)
     return outputData;
 }
 
-vector<Detection> stopSignDetect::detect(const cv::Mat& frame)
+vector<Detection> YoloDetector::detect(const cv::Mat& frame)
 {
     vector<Detection> detections;
 
@@ -280,20 +312,35 @@ vector<Detection> stopSignDetect::detect(const cv::Mat& frame)
         return detections;
     }
 
-    const int numPreds = 8400;
-    const float confThreshold = 0.50f;
-
     float scaleX = static_cast<float>(frame.cols) / static_cast<float>(inputW);
     float scaleY = static_cast<float>(frame.rows) / static_cast<float>(inputH);
 
-    for (int i = 0; i < numPreds; i++) {
-        float x = raw[0 * numPreds + i];
-        float y = raw[1 * numPreds + i];
-        float w = raw[2 * numPreds + i];
-        float h = raw[3 * numPreds + i];
-        float conf = raw[4 * numPreds + i];
+    // pre-nms candidate buffers
+    vector<cv::Rect> boxes;
+    vector<float>    scores;
+    vector<int>      classIds;
+    boxes.reserve(64);
+    scores.reserve(64);
+    classIds.reserve(64);
 
-        if (conf < confThreshold) {
+    for (int i = 0; i < numPreds_; i++) {
+        float x = raw[0 * numPreds_ + i];
+        float y = raw[1 * numPreds_ + i];
+        float w = raw[2 * numPreds_ + i];
+        float h = raw[3 * numPreds_ + i];
+
+        // argmax over class scores (channels 4..(3+numClasses_))
+        float bestScore = 0.0f;
+        int   bestClass = -1;
+        for (int c = 0; c < numClasses_; c++) {
+            float s = raw[(4 + c) * numPreds_ + i];
+            if (s > bestScore) {
+                bestScore = s;
+                bestClass = c;
+            }
+        }
+
+        if (bestClass < 0 || bestScore < confThreshold_) {
             continue;
         }
 
@@ -307,19 +354,37 @@ vector<Detection> stopSignDetect::detect(const cv::Mat& frame)
         }
 
         if (left < 0) left = 0;
-        if (top < 0) top = 0;
-        if (left + width > frame.cols) {
-            width = frame.cols - left;
-        }
-        if (top + height > frame.rows) {
-            height = frame.rows - top;
-        }
+        if (top  < 0) top  = 0;
+        if (left + width  > frame.cols) width  = frame.cols - left;
+        if (top  + height > frame.rows) height = frame.rows - top;
 
+        boxes.emplace_back(left, top, width, height);
+        scores.push_back(bestScore);
+        classIds.push_back(bestClass);
+    }
+
+    if (boxes.empty()) {
+        return detections;
+    }
+
+    // class-agnostic nms keeps it simple; switch to per-class if you see overlaps within a class
+    vector<int> keep;
+    cv::dnn::NMSBoxes(boxes, scores, confThreshold_, nmsThreshold_, keep);
+
+    detections.reserve(keep.size());
+    for (int idx : keep) {
         Detection det;
-        det.box = cv::Rect(left, top, width, height);
-        det.confidence = conf;
-        det.class_id = 0;
-        det.label = "STOP";
+        det.box        = boxes[idx];
+        det.confidence = scores[idx];
+        det.class_id   = classIds[idx];
+
+        if (classIds[idx] >= 0
+            && classIds[idx] < static_cast<int>(classNames_.size()))
+        {
+            det.label = classNames_[classIds[idx]];
+        } else {
+            det.label = "class_" + to_string(classIds[idx]);
+        }
 
         detections.push_back(det);
     }
@@ -327,7 +392,7 @@ vector<Detection> stopSignDetect::detect(const cv::Mat& frame)
     return detections;
 }
 
-vector<float> stopSignDetect::preprocess(const cv::Mat& frame)
+vector<float> YoloDetector::preprocess(const cv::Mat& frame)
 {
     cv::Mat resized, rgb, floatImg;
 
