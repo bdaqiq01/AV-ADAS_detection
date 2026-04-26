@@ -101,7 +101,7 @@ int main(int argc, char** argv)
     
     //loading the stop sign detector (single class)
     vector<string> stopClasses = { "STOP" };
-    YoloDetector stopDetector(stopClasses, 0.60f, 0.45f);
+    YoloDetector stopDetector(stopClasses, 0.75f, 0.45f);
     if (!stopDetector.loadEngine("models/stop.engine"))
     {
         cerr << "Failed to load the stop.engine. \n";
@@ -125,7 +125,7 @@ int main(int argc, char** argv)
         "SPEED 70",
         "SPEED 75"
     };
-    YoloDetector speedDetector(speedClasses, 0.78f, 0.45f);
+    YoloDetector speedDetector(speedClasses, 0.90f, 0.45f);
     if (!speedDetector.loadEngine("models/speedlimit.engine"))
     {
         cerr << "Failed to load the speedlimit.engine. \n";
