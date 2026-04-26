@@ -14,7 +14,7 @@ find_package(OpenCV REQUIRED)
 add_executable(adas
     app/main.cpp
     src/lane/LaneDetect.cpp
-    src/stop_speedLimit/stopSignDetector.cpp
+    src/stop_speedLimit/yoloDetector.cpp
 )
 
 target_include_directories(adas PRIVATE
