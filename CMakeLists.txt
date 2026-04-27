@@ -13,6 +13,7 @@ find_package(OpenCV REQUIRED)
 
 add_executable(adas
     app/main.cpp
+    app/frameProcessor.cpp
     src/lane/LaneDetect.cpp
     src/stop_speedLimit/yoloDetector.cpp
 )
@@ -20,6 +21,7 @@ add_executable(adas
 target_include_directories(adas PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/lane
     ${CMAKE_CURRENT_SOURCE_DIR}/src/stop_speedLimit
+    ${CMAKE_CURRENT_SOURCE_DIR}/app
     ${OpenCV_INCLUDE_DIRS}
     /usr/local/cuda-12.6/targets/aarch64-linux/include
 )

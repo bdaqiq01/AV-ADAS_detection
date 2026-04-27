@@ -11,6 +11,7 @@
 
 #include "LaneDetect.h"
 #include "yoloDetector.h"
+#include "frameProcessor.h"
 
 using namespace std; 
 
@@ -32,8 +33,9 @@ int main(int argc, char** argv)
     cv::moveWindow("source", 360, 20);
     cv::moveWindow("final", 1020, 20);
 
-    char winInput;
+    int winInput = -1;
     LaneDetect laneDetect;
+    FrameProcessor frameProcessor;
 
     cv::CommandLineParser parser(
         argc, argv,
@@ -41,6 +43,7 @@ int main(int argc, char** argv)
         "{camera c | 0 | camera capture}"
     );
 
+    std::string inputFile = parser.get<std::string>("@input");
     int camera = parser.get<int>("camera");
 
     int rho = 1;
@@ -59,44 +62,41 @@ int main(int argc, char** argv)
     cv::createTrackbar("Min Line Length (probabilistic)", "options", &minLineLength, 100);
     cv::createTrackbar("Max Line Gap (probabilistic)", "options", &maxLineGap, 100);
 
-	//opening camera of video input 
-   if (argc > 1) {
-            if (!vcCap.open(argv[1])) {
-                vcCap.open(camera);
-            }
-        } else {
+	//opening camera of video input
+    if (!inputFile.empty()) {
+        if (!vcCap.open(inputFile)) {
             vcCap.open(camera);
         }
-    
-        if (!vcCap.isOpened()) {
-            cerr << "Failed to open video source.\n";
+    } else {
+        vcCap.open(camera);
+    }
+
+    if (!vcCap.isOpened()) {
+        cerr << "Failed to open video source.\n";
+        return SYSTEM_ERROR;
+    }
+
+    //writing camera of video output
+    bool enableVideoWrite = false;
+    cv::VideoWriter writer;
+    if (enableVideoWrite)
+    {
+        double fps = vcCap.get(cv::CAP_PROP_FPS);
+        if (fps <= 0) fps = 30.0;
+
+        int frameWidth = static_cast<int>(vcCap.get(cv::CAP_PROP_FRAME_WIDTH));
+        int frameHeight = static_cast<int>(vcCap.get(cv::CAP_PROP_FRAME_HEIGHT));
+
+        writer.open("output/final_output.mp4",
+                    cv::VideoWriter::fourcc('m', 'p', '4', 'v'),
+                    fps,
+                    cv::Size(frameWidth, frameHeight));
+
+        if (!writer.isOpened()) {
+            cerr << "Failed to open output video file.\n";
             return SYSTEM_ERROR;
         }
-    
-
-
-	//writing camera of video ouput
-	bool enableVideoWrite = false;
-	double fps = vcCap.get(cv::CAP_PROP_FPS);
-	if (fps <= 0) fps = 30.0;
-	
-	int frameWidth = static_cast<int>(vcCap.get(cv::CAP_PROP_FRAME_WIDTH));
-	int frameHeight = static_cast<int>(vcCap.get(cv::CAP_PROP_FRAME_HEIGHT));
-
-	cv::VideoWriter writer;
-	 if (enableVideoWrite)
-	 { 
-	 	writer.open("output/final_output.mp4",
-	 	            cv::VideoWriter::fourcc('m', 'p', '4', 'v'),
-	 	            fps,
-	 	            cv::Size(frameWidth, frameHeight));
-	 	
-	 	if (!writer.isOpened()) 
-	 		{
-	 	    cerr << "Failed to open output video file.\n";
-	 	    return -1;
-	 		}	
-	 }
+    }
 	
     
     //loading the stop sign detector (single class)
@@ -160,46 +160,13 @@ int main(int argc, char** argv)
         };
 
 		//per-stage timing
-		auto tLaneStart = chrono::steady_clock::now();
-        //lane detection
-        cv::Mat finalFrame = laneDetect.runHough(matFrame, params);
-		auto tLaneEnd = chrono::steady_clock::now();
-
-		//stop sign detector 
-        vector<Detection> stopDetections = stopDetector.detect(matFrame);
-		auto tStopEnd = chrono::steady_clock::now();
-
-        //speed limit detector
-        vector<Detection> speedDetections = speedDetector.detect(matFrame);
-        auto tSpeedEnd = chrono::steady_clock::now();
-
-        //draw stop signs in green
-        for (const auto& det : stopDetections) {
-            cv::rectangle(finalFrame, det.box, cv::Scalar(0, 255, 0), 2);
-
-            string text = det.label + " " + to_string(det.confidence).substr(0, 4);
-            cv::putText(finalFrame,
-                        text,
-                        cv::Point(det.box.x, det.box.y - 10),
-                        cv::FONT_HERSHEY_SIMPLEX,
-                        0.6,
-                        cv::Scalar(0, 255, 0),
-                        2);
-        }
-
-        //draw speed limits in yellow
-        for (const auto& det : speedDetections) {
-            cv::rectangle(finalFrame, det.box, cv::Scalar(0, 255, 255), 2);
-
-            string text = det.label + " " + to_string(det.confidence).substr(0, 4);
-            cv::putText(finalFrame,
-                        text,
-                        cv::Point(det.box.x, det.box.y - 10),
-                        cv::FONT_HERSHEY_SIMPLEX,
-                        0.6,
-                        cv::Scalar(0, 255, 255),
-                        2);
-        }
+		auto tProcessStart = chrono::steady_clock::now();
+        FrameResults results = frameProcessor.processFrame(matFrame, 
+                                                        laneDetect, 
+                                                        stopDetector, 
+                                                        speedDetector, 
+                                                        params);
+		auto tProcessEnd = chrono::steady_clock::now();
 	
 		//FPS calculation
 		auto now = chrono::steady_clock::now();
@@ -209,44 +176,37 @@ int main(int argc, char** argv)
         if (elapsedSeconds > 0.0) {
             currentFPS = frameCount / elapsedSeconds;
         }
-
-        //print fps + per-stage timing once per second
         double sinceLastPrint =
             chrono::duration_cast<chrono::milliseconds>(now - lastFpsPrintTime).count() / 1000.0;
 
         if (sinceLastPrint >= 1.0) {
-            double laneMs  = chrono::duration<double, milli>(tLaneEnd  - tLaneStart).count();
-            double stopMs  = chrono::duration<double, milli>(tStopEnd  - tLaneEnd  ).count();
-            double speedMs = chrono::duration<double, milli>(tSpeedEnd - tStopEnd  ).count();
-            double totalMs = chrono::duration<double, milli>(tSpeedEnd - tLaneStart).count();
+            double totalMs = chrono::duration<double, milli>(tProcessEnd - tProcessStart).count();
 
             cout << "Frames: " << frameCount
-                 << " | FPS: "  << currentFPS
-                 << " | lane: " << laneMs  << "ms"
-                 << " | stop: " << stopMs  << "ms"
-                 << " | speed: "<< speedMs << "ms"
-                 << " | total: "<< totalMs << "ms"
-                 << endl;
+                << " | FPS: " << currentFPS
+                << " | process: " << totalMs << "ms"
+                << endl;
+
             lastFpsPrintTime = now;
-        } 
+        }
 
 
 
         cv::imshow("source", matFrame);
-        cv::imshow("final", finalFrame);
+        cv::imshow("final", results.finalFrame);
 
         //writing the frame to the video 
        if (enableVideoWrite)
        {
-       		writer.write(finalFrame);
+       		writer.write(results.finalFrame);
        }
      
 
-        winInput = static_cast<char>(cv::waitKey(1));
+        winInput = cv::waitKey(1);
         if (winInput == ESCAPE_KEY) {
             break;
         } else if (winInput == 'n') {
-            std::cout << "input " << winInput << " ignored" << std::endl;
+            std::cout << "input " << static_cast<char>(winInput) << " ignored" << std::endl;
         }
 
         
