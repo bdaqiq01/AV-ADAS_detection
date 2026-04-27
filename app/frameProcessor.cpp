@@ -1,7 +1,48 @@
 #include "frameProcessor.h"
 
 #include <string>
+#include <pthread.h>
 #include <opencv2/imgproc.hpp>
+
+struct LaneThreadData {
+    const cv::Mat* frame;
+    LaneDetect* laneDetect;
+    const HoughParams* params;
+    cv::Mat output;
+};
+
+struct StopThreadStruct {
+    const cv::Mat* frame;
+    YoloDetector* detector;
+    std::vector<Detection> detections;
+};
+
+struct SpeedThreadStruct {
+    const cv::Mat* frame;
+    YoloDetector* detector;
+    std::vector<Detection> detections;
+};
+
+static void* laneWorker(void* arg)
+{
+    auto* d = static_cast<LaneThreadData*>(arg);
+    d->output = d->laneDetect->runHough(*d->frame, *d->params);
+    return nullptr;
+}
+
+static void* stopWorker(void* arg)
+{
+    auto* d = static_cast<StopThreadStruct*>(arg);
+    d->detections = d->detector->detect(*d->frame);
+    return nullptr;
+}
+
+static void* speedWorker(void* arg)
+{
+    auto* d = static_cast<SpeedThreadStruct*>(arg);
+    d->detections = d->detector->detect(*d->frame);
+    return nullptr;
+}
 
 FrameProcessor::FrameProcessor()
     : stableWarning_(""),
@@ -19,14 +60,23 @@ FrameResults FrameProcessor::processFrame(const cv::Mat& frame,
 {
     FrameResults results;
 
-    // lane detection
-    results.finalFrame = laneDetect.runHough(frame, params);
+    LaneThreadData  laneData{&frame, &laneDetect,    &params, {}};
+    StopThreadStruct stopData{&frame, &stopDetector,  {}};
+    SpeedThreadStruct speedData{&frame, &speedDetector, {}};
 
-    // stop sign detection
-    results.stopDetections = stopDetector.detect(frame);
-    
-    // speed limit detection
-    results.speedDetections = speedDetector.detect(frame);
+    pthread_t laneThread, stopThread, speedThread;
+
+    pthread_create(&laneThread,  nullptr, laneWorker,  &laneData);
+    pthread_create(&stopThread,  nullptr, stopWorker,  &stopData);
+    pthread_create(&speedThread, nullptr, speedWorker, &speedData);
+
+    pthread_join(laneThread,  nullptr);
+    pthread_join(stopThread,  nullptr);
+    pthread_join(speedThread, nullptr);
+
+    results.finalFrame      = std::move(laneData.output);
+    results.stopDetections  = std::move(stopData.detections);
+    results.speedDetections = std::move(speedData.detections);
 
     // draw stop detections in green
     for (const auto& det : results.stopDetections) {

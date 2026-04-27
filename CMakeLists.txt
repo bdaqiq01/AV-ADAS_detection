@@ -10,6 +10,8 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 find_package(OpenCV REQUIRED)
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
 
 add_executable(adas
     app/main.cpp
@@ -33,6 +35,7 @@ target_link_directories(adas PRIVATE
 
 target_link_libraries(adas PRIVATE
     ${OpenCV_LIBS}
+    Threads::Threads
     nvinfer
     cudart
 )
