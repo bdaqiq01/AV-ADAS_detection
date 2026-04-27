@@ -3,6 +3,14 @@
 #include <string>
 #include <opencv2/imgproc.hpp>
 
+FrameProcessor::FrameProcessor()
+    : stableWarning_(""),
+      candidateWarning_(""),
+      candidateCount_(0),
+      stableFramesRequired_(3)
+{
+}
+
 FrameResults FrameProcessor::processFrame(const cv::Mat& frame,
                                           LaneDetect& laneDetect,
                                           YoloDetector& stopDetector,
@@ -10,8 +18,7 @@ FrameResults FrameProcessor::processFrame(const cv::Mat& frame,
                                           const HoughParams& params)
 {
     FrameResults results;
-    std::string lastWarning;
-    int stableCount = 0;
+
     // lane detection
     results.finalFrame = laneDetect.runHough(frame, params);
 
