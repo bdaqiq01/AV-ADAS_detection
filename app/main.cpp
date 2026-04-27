@@ -77,7 +77,7 @@ int main(int argc, char** argv)
     }
 
     //writing camera of video output
-    bool enableVideoWrite = false;
+    bool enableVideoWrite = TRUE;
     cv::VideoWriter writer;
     if (enableVideoWrite)
     {
