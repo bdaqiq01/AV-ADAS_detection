@@ -1,114 +1,163 @@
 #include <iostream>
+#include <string>
+#include <vector>
+#include <chrono>
 #include "opencv2/core.hpp"
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/highgui.hpp"
 #include "opencv2/imgproc.hpp"
 #include "opencv2/videoio.hpp"
 #include "LaneDetect.h"
-#include "stopSignDetector.h"
+#include "yoloDetector.h"
+#include "frameProcessor.h"
 #include "PedestrianDetector.h"
 
 using namespace std;
 
 #define ESCAPE_KEY (27)
+#define SYSTEM_ERROR (-1)
 
-int main(int argc, char** argv) {
-    if (argc < 2) {
-        cerr << "Usage: ./adas <video_path>" << endl;
-        return -1;
-    }
-    int frameCount = 0;
-
+int main(int argc, char** argv)
+{
     cv::VideoCapture vcCap;
-    if (!vcCap.open(argv[1])) {
-        cerr << "Failed to open video: " << argv[1] << endl;
-        return -1;
-    }
+    cv::namedWindow("options", cv::WINDOW_NORMAL);
+    cv::namedWindow("source",  cv::WINDOW_NORMAL);
+    cv::namedWindow("final",   cv::WINDOW_NORMAL);
+    cv::resizeWindow("options", 320, 300);
+    cv::resizeWindow("source",  640, 360);
+    cv::resizeWindow("final",   640, 360);
+    cv::moveWindow("options", 20,   20);
+    cv::moveWindow("source",  360,  20);
+    cv::moveWindow("final",   1020, 20);
 
-    // ── Lane detection (Luke) ────────────────────────────────────────────
-    cv::namedWindow("options");
+    int winInput = -1;
     LaneDetect laneDetect;
+    FrameProcessor frameProcessor;
+
+    cv::CommandLineParser parser(
+        argc, argv,
+        "{@input   | | input file}"
+        "{camera c | 0 | camera capture}"
+    );
+
+    std::string inputFile = parser.get<std::string>("@input");
+    int camera = parser.get<int>("camera");
+
     int rho = 1, thetaDivisor = 180, thresholdProb = 50;
     int minLineLength = 50, maxLineGap = 10;
-    cv::createTrackbar("Rho",              "options", &rho,           10);
-    cv::setTrackbarMin("Rho",              "options", 1);
-    cv::createTrackbar("Theta divisor",    "options", &thetaDivisor,  360);
-    cv::setTrackbarMin("Theta divisor",    "options", 1);
-    cv::createTrackbar("Threshold (prob)", "options", &thresholdProb, 300);
-    cv::createTrackbar("Min Line Length",  "options", &minLineLength, 100);
-    cv::createTrackbar("Max Line Gap",     "options", &maxLineGap,    100);
+    cv::createTrackbar("Rho", "options", &rho, 10);
+    cv::setTrackbarMin("Rho", "options", 1);
+    cv::createTrackbar("Theta divisor", "options", &thetaDivisor, 360);
+    cv::setTrackbarMin("Theta divisor", "options", 1);
+    cv::createTrackbar("Threshold (probabilistic)", "options", &thresholdProb, 300);
+    cv::createTrackbar("Min Line Length (probabilistic)", "options", &minLineLength, 100);
+    cv::createTrackbar("Max Line Gap (probabilistic)", "options", &maxLineGap, 100);
 
-    // ── Stop sign detection (Basira) ─────────────────────────────────────
-    stopSignDetect stopDetector;
+    if (!inputFile.empty()) {
+        if (!vcCap.open(inputFile)) vcCap.open(camera);
+    } else {
+        vcCap.open(camera);
+    }
+    if (!vcCap.isOpened()) {
+        cerr << "Failed to open video source.\n";
+        return SYSTEM_ERROR;
+    }
+
+    // Video writer
+    bool enableVideoWrite = true;
+    cv::VideoWriter writer;
+    if (enableVideoWrite) {
+        double fps = vcCap.get(cv::CAP_PROP_FPS);
+        if (fps <= 0) fps = 30.0;
+        int frameWidth  = static_cast<int>(vcCap.get(cv::CAP_PROP_FRAME_WIDTH));
+        int frameHeight = static_cast<int>(vcCap.get(cv::CAP_PROP_FRAME_HEIGHT));
+        writer.open("output/final_output.mp4",
+                    cv::VideoWriter::fourcc('m','p','4','v'),
+                    fps, cv::Size(frameWidth, frameHeight));
+        if (!writer.isOpened()) {
+            cerr << "Failed to open output video file.\n";
+            return SYSTEM_ERROR;
+        }
+    }
+
+    // ── Load stop sign detector ──────────────────────────────────────────
+    vector<string> stopClasses = { "STOP" };
+    YoloDetector stopDetector(stopClasses, 0.75f, 0.45f);
     if (!stopDetector.loadEngine("models/stop.engine")) {
-        cerr << "Failed to load stop.engine." << endl;
+        cerr << "Failed to load stop.engine.\n";
         return -1;
     }
 
-    // ── Pedestrian detection (Aditya) ────────────────────────────────────
+    // ── Load speed limit detector ────────────────────────────────────────
+    vector<string> speedClasses = {
+        "SPEED 10","SPEED 15","SPEED 20","SPEED 25","SPEED 30","SPEED 35",
+        "SPEED 40","SPEED 45","SPEED 50","SPEED 55","SPEED 60","SPEED 65",
+        "SPEED 70","SPEED 75"
+    };
+    YoloDetector speedDetector(speedClasses, 0.90f, 0.45f);
+    if (!speedDetector.loadEngine("models/speedlimit.engine")) {
+        cerr << "Failed to load speedlimit.engine.\n";
+        return -1;
+    }
+
+    // ── Load pedestrian detector ─────────────────────────────────────────
     ped::PedestrianDetector pedDetector;
     if (!pedDetector.loadEngine("models/pedestrian.engine")) {
-        cerr << "Failed to load pedestrian.engine." << endl;
+        cerr << "Failed to load pedestrian.engine.\n";
         return -1;
     }
 
     cout << "All modules loaded. Starting pipeline..." << endl;
 
+    int frameCount = 0;
+    double currentFPS = 0.0;
+    auto startTime = chrono::steady_clock::now();
+    auto lastFpsPrintTime = startTime;
+
     while (true) {
         cv::Mat matFrame;
         vcCap.read(matFrame);
         if (matFrame.empty()) {
-            cerr << "End of video or empty frame." << endl;
+            cerr << "Error: empty frame received." << endl;
             break;
         }
 
-        // ── Lane detection ───────────────────────────────────────────────
-        HoughParams params{ rho, thetaDivisor, thresholdProb, minLineLength, maxLineGap };
-        cv::Mat laneFrame = laneDetect.runHough(matFrame, params);
-
-        // ── Stop sign detection (Basira) ─────────────────────────────────
-        vector<Detection> detections = stopDetector.detect(matFrame);
-        for (const auto& det : detections) {
-            cv::rectangle(matFrame, det.box, cv::Scalar(0, 255, 0), 2);
-            string text = det.label + " " + to_string(det.confidence).substr(0, 4);
-            cv::putText(matFrame, text,
-                        cv::Point(det.box.x, det.box.y - 10),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.6,
-                        cv::Scalar(0, 255, 0), 2);
-        }
-        vector<float> rawoutput = stopDetector.inferRaw(matFrame);
-        if (frameCount % 30 == 0) {
-            cout << "Raw output size: " << rawoutput.size() << endl;
-        }
         frameCount++;
 
-        // ── Pedestrian detection + risk visualization (Aditya) ───────────
-        auto peds = pedDetector.detect(matFrame);
-        pedDetector.visualize(matFrame, peds);
+        HoughParams params{ rho, thetaDivisor, thresholdProb, minLineLength, maxLineGap };
 
-        // ── Pedestrian HUD ───────────────────────────────────────────────
-        int n_high = 0, n_med = 0, n_low = 0;
-        for (const auto& p : peds) {
-            if      (p.risk == ped::RiskLevel::HIGH)   n_high++;
-            else if (p.risk == ped::RiskLevel::MEDIUM)  n_med++;
-            else                                        n_low++;
+        auto tProcessStart = chrono::steady_clock::now();
+        FrameResults results = frameProcessor.processFrame(
+            matFrame, laneDetect, stopDetector, speedDetector, pedDetector, params);
+        auto tProcessEnd = chrono::steady_clock::now();
+
+        auto now = chrono::steady_clock::now();
+        double elapsedSeconds =
+            chrono::duration_cast<chrono::milliseconds>(now - startTime).count() / 1000.0;
+        if (elapsedSeconds > 0.0) currentFPS = frameCount / elapsedSeconds;
+
+        double sinceLastPrint =
+            chrono::duration_cast<chrono::milliseconds>(now - lastFpsPrintTime).count() / 1000.0;
+        if (sinceLastPrint >= 1.0) {
+            double totalMs = chrono::duration<double, milli>(tProcessEnd - tProcessStart).count();
+            cout << "Frames: " << frameCount
+                 << " | FPS: " << currentFPS
+                 << " | process: " << totalMs << "ms" << endl;
+            lastFpsPrintTime = now;
         }
-        cv::putText(matFrame,
-            "Peds: " + to_string(peds.size()) +
-            "  H:" + to_string(n_high) +
-            " M:" + to_string(n_med) +
-            " L:" + to_string(n_low),
-            cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8,
-            cv::Scalar(0, 255, 255), 2, cv::LINE_AA);
 
-        // ── Display ──────────────────────────────────────────────────────
-        cv::imshow("ADAS — Pedestrian + Risk", matFrame);
-        cv::imshow("ADAS — Lane Detection",    laneFrame);
+        cv::imshow("source", matFrame);
+        cv::imshow("final",  results.finalFrame);
 
-        char key = static_cast<char>(cv::waitKey(1));
-        if (key == ESCAPE_KEY) break;
+        if (enableVideoWrite) writer.write(results.finalFrame);
+
+        winInput = cv::waitKey(1);
+        if (winInput == ESCAPE_KEY) break;
+        else if (winInput == 'n')
+            cout << "input " << static_cast<char>(winInput) << " ignored" << endl;
     }
 
+    if (enableVideoWrite) writer.release();
     cv::destroyAllWindows();
     return 0;
 }
