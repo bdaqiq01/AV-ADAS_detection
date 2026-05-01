@@ -2,11 +2,13 @@
 #include <string>
 #include <vector>
 #include <chrono>
+
 #include "opencv2/core.hpp"
 #include "opencv2/imgcodecs.hpp"
 #include "opencv2/highgui.hpp"
 #include "opencv2/imgproc.hpp"
 #include "opencv2/videoio.hpp"
+
 #include "LaneDetect.h"
 #include "yoloDetector.h"
 #include "frameProcessor.h"
@@ -23,9 +25,11 @@ int main(int argc, char** argv)
     cv::namedWindow("options", cv::WINDOW_NORMAL);
     cv::namedWindow("source",  cv::WINDOW_NORMAL);
     cv::namedWindow("final",   cv::WINDOW_NORMAL);
+
     cv::resizeWindow("options", 320, 300);
     cv::resizeWindow("source",  640, 360);
     cv::resizeWindow("final",   640, 360);
+
     cv::moveWindow("options", 20,   20);
     cv::moveWindow("source",  360,  20);
     cv::moveWindow("final",   1020, 20);
@@ -54,16 +58,18 @@ int main(int argc, char** argv)
     cv::createTrackbar("Max Line Gap (probabilistic)", "options", &maxLineGap, 100);
 
     if (!inputFile.empty()) {
-        if (!vcCap.open(inputFile)) vcCap.open(camera);
+        if (!vcCap.open(inputFile)) {
+            vcCap.open(camera);
+        }
     } else {
         vcCap.open(camera);
     }
+
     if (!vcCap.isOpened()) {
         cerr << "Failed to open video source.\n";
         return SYSTEM_ERROR;
     }
 
-    // Video writer
     bool enableVideoWrite = true;
     cv::VideoWriter writer;
     if (enableVideoWrite) {
@@ -72,7 +78,7 @@ int main(int argc, char** argv)
         int frameWidth  = static_cast<int>(vcCap.get(cv::CAP_PROP_FRAME_WIDTH));
         int frameHeight = static_cast<int>(vcCap.get(cv::CAP_PROP_FRAME_HEIGHT));
         writer.open("output/final_output.mp4",
-                    cv::VideoWriter::fourcc('m','p','4','v'),
+                    cv::VideoWriter::fourcc('m', 'p', '4', 'v'),
                     fps, cv::Size(frameWidth, frameHeight));
         if (!writer.isOpened()) {
             cerr << "Failed to open output video file.\n";
@@ -80,27 +86,25 @@ int main(int argc, char** argv)
         }
     }
 
-    // ── Load stop sign detector ──────────────────────────────────────────
     vector<string> stopClasses = { "STOP" };
     YoloDetector stopDetector(stopClasses, 0.75f, 0.45f);
     if (!stopDetector.loadEngine("models/stop.engine")) {
-        cerr << "Failed to load stop.engine.\n";
+        cerr << "Failed to load the stop.engine.\n";
         return -1;
     }
 
-    // ── Load speed limit detector ────────────────────────────────────────
     vector<string> speedClasses = {
-        "SPEED 10","SPEED 15","SPEED 20","SPEED 25","SPEED 30","SPEED 35",
-        "SPEED 40","SPEED 45","SPEED 50","SPEED 55","SPEED 60","SPEED 65",
-        "SPEED 70","SPEED 75"
+        "SPEED 10", "SPEED 15", "SPEED 20", "SPEED 25",
+        "SPEED 30", "SPEED 35", "SPEED 40", "SPEED 45",
+        "SPEED 50", "SPEED 55", "SPEED 60", "SPEED 65",
+        "SPEED 70", "SPEED 75"
     };
     YoloDetector speedDetector(speedClasses, 0.90f, 0.45f);
     if (!speedDetector.loadEngine("models/speedlimit.engine")) {
-        cerr << "Failed to load speedlimit.engine.\n";
+        cerr << "Failed to load the speedlimit.engine.\n";
         return -1;
     }
 
-    // ── Load pedestrian detector ─────────────────────────────────────────
     ped::PedestrianDetector pedDetector;
     if (!pedDetector.loadEngine("models/pedestrian.engine")) {
         cerr << "Failed to load pedestrian.engine.\n";
@@ -124,7 +128,9 @@ int main(int argc, char** argv)
 
         frameCount++;
 
-        HoughParams params{ rho, thetaDivisor, thresholdProb, minLineLength, maxLineGap };
+        HoughParams params{
+            rho, thetaDivisor, thresholdProb, minLineLength, maxLineGap
+        };
 
         auto tProcessStart = chrono::steady_clock::now();
         FrameResults results = frameProcessor.processFrame(
@@ -152,9 +158,11 @@ int main(int argc, char** argv)
         if (enableVideoWrite) writer.write(results.finalFrame);
 
         winInput = cv::waitKey(1);
-        if (winInput == ESCAPE_KEY) break;
-        else if (winInput == 'n')
+        if (winInput == ESCAPE_KEY) {
+            break;
+        } else if (winInput == 'n') {
             cout << "input " << static_cast<char>(winInput) << " ignored" << endl;
+        }
     }
 
     if (enableVideoWrite) writer.release();

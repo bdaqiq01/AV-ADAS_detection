@@ -1,8 +1,10 @@
 #ifndef FRAME_PROCESSOR_H
 #define FRAME_PROCESSOR_H
+
 #include <string>
 #include <vector>
 #include <opencv2/core.hpp>
+
 #include "LaneDetect.h"
 #include "yoloDetector.h"
 #include "PedestrianDetector.h"
@@ -31,4 +33,5 @@ private:
     int candidateCount_;
     int stableFramesRequired_;
 };
+
 #endif

@@ -1,4 +1,5 @@
 #include "frameProcessor.h"
+
 #include <string>
 #include <opencv2/imgproc.hpp>
 
@@ -19,11 +20,16 @@ FrameResults FrameProcessor::processFrame(const cv::Mat& frame,
 {
     FrameResults results;
 
-    // ── Lane detection ───────────────────────────────────────────────────
+    // lane detection
     results.finalFrame = laneDetect.runHough(frame, params);
 
-    // ── Stop sign detection ──────────────────────────────────────────────
+    // stop sign detection
     results.stopDetections = stopDetector.detect(frame);
+
+    // speed limit detection
+    results.speedDetections = speedDetector.detect(frame);
+
+    // draw stop detections in green
     for (const auto& det : results.stopDetections) {
         cv::rectangle(results.finalFrame, det.box, cv::Scalar(0, 255, 0), 2);
         std::string text = det.label + " " + std::to_string(det.confidence).substr(0, 4);
@@ -32,8 +38,7 @@ FrameResults FrameProcessor::processFrame(const cv::Mat& frame,
                     cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
     }
 
-    // ── Speed limit detection ────────────────────────────────────────────
-    results.speedDetections = speedDetector.detect(frame);
+    // draw speed detections in yellow
     for (const auto& det : results.speedDetections) {
         cv::rectangle(results.finalFrame, det.box, cv::Scalar(0, 255, 255), 2);
         std::string text = det.label + " " + std::to_string(det.confidence).substr(0, 4);
@@ -42,11 +47,11 @@ FrameResults FrameProcessor::processFrame(const cv::Mat& frame,
                     cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 255), 2);
     }
 
-    // ── Pedestrian detection + risk visualization ────────────────────────
+    // pedestrian detection + risk visualization
     results.pedDetections = pedDetector.detect(results.finalFrame);
     pedDetector.visualize(results.finalFrame, results.pedDetections);
 
-    // ── Pedestrian HUD ───────────────────────────────────────────────────
+    // pedestrian HUD
     int n_high = 0, n_med = 0, n_low = 0;
     for (const auto& p : results.pedDetections) {
         if      (p.risk == ped::RiskLevel::HIGH)   n_high++;
@@ -63,7 +68,7 @@ FrameResults FrameProcessor::processFrame(const cv::Mat& frame,
             cv::Scalar(0, 255, 255), 2, cv::LINE_AA);
     }
 
-    // ── Warning text ─────────────────────────────────────────────────────
+    // warning text
     if (!results.stopDetections.empty()) {
         results.warningText = "Slow down to a stop, stop sign detected";
     } else if (!results.speedDetections.empty()) {
