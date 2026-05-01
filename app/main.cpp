@@ -17,6 +17,7 @@ int main(int argc, char** argv) {
         cerr << "Usage: ./adas <video_path>" << endl;
         return -1;
     }
+    int frameCount = 0;
 
     cv::VideoCapture vcCap;
     if (!vcCap.open(argv[1])) {
@@ -65,19 +66,32 @@ int main(int argc, char** argv) {
         HoughParams params{ rho, thetaDivisor, thresholdProb, minLineLength, maxLineGap };
         cv::Mat laneFrame = laneDetect.runHough(matFrame, params);
 
-        // ── Stop sign detection ──────────────────────────────────────────
-        vector<float> stopRaw = stopDetector.inferRaw(matFrame);
+        // ── Stop sign detection (Basira) ─────────────────────────────────
+        vector<Detection> detections = stopDetector.detect(matFrame);
+        for (const auto& det : detections) {
+            cv::rectangle(matFrame, det.box, cv::Scalar(0, 255, 0), 2);
+            string text = det.label + " " + to_string(det.confidence).substr(0, 4);
+            cv::putText(matFrame, text,
+                        cv::Point(det.box.x, det.box.y - 10),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.6,
+                        cv::Scalar(0, 255, 0), 2);
+        }
+        vector<float> rawoutput = stopDetector.inferRaw(matFrame);
+        if (frameCount % 30 == 0) {
+            cout << "Raw output size: " << rawoutput.size() << endl;
+        }
+        frameCount++;
 
-        // ── Pedestrian detection + risk visualization ────────────────────
+        // ── Pedestrian detection + risk visualization (Aditya) ───────────
         auto peds = pedDetector.detect(matFrame);
         pedDetector.visualize(matFrame, peds);
 
-        // ── HUD ──────────────────────────────────────────────────────────
+        // ── Pedestrian HUD ───────────────────────────────────────────────
         int n_high = 0, n_med = 0, n_low = 0;
         for (const auto& p : peds) {
             if      (p.risk == ped::RiskLevel::HIGH)   n_high++;
             else if (p.risk == ped::RiskLevel::MEDIUM)  n_med++;
-            else                                   n_low++;
+            else                                        n_low++;
         }
         cv::putText(matFrame,
             "Peds: " + to_string(peds.size()) +
