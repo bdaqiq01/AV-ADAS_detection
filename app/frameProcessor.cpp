@@ -1,6 +1,8 @@
 #include "frameProcessor.h"
 
 #include <string>
+#include <chrono>
+#include <iostream>
 #include <opencv2/imgproc.hpp>
 
 FrameProcessor::FrameProcessor()
@@ -20,14 +22,41 @@ FrameResults FrameProcessor::processFrame(const cv::Mat& frame,
 {
     FrameResults results;
 
+    auto t0 = std::chrono::high_resolution_clock::now();
+
     // lane detection
     results.finalFrame = laneDetect.runHough(frame, params);
+
+    auto t1 = std::chrono::high_resolution_clock::now();
 
     // stop sign detection
     results.stopDetections = stopDetector.detect(frame);
 
+    auto t2 = std::chrono::high_resolution_clock::now();
+
     // speed limit detection
     results.speedDetections = speedDetector.detect(frame);
+
+    auto t3 = std::chrono::high_resolution_clock::now();
+
+    // pedestrian detection + risk visualization
+    results.pedDetections = pedDetector.detect(results.finalFrame);
+    pedDetector.visualize(results.finalFrame, results.pedDetections);
+
+    auto t4 = std::chrono::high_resolution_clock::now();
+
+    // print per-module timing every 60 frames
+    static int frameCount = 0;
+    if (++frameCount % 60 == 0) {
+        auto ms = [](auto a, auto b) {
+            return std::chrono::duration<double, std::milli>(b - a).count();
+        };
+        std::cout << "  Lane: "  << ms(t0,t1) << "ms"
+                  << " | Stop: " << ms(t1,t2) << "ms"
+                  << " | Speed: "<< ms(t2,t3) << "ms"
+                  << " | Ped: "  << ms(t3,t4) << "ms"
+                  << std::endl;
+    }
 
     // draw stop detections in green
     for (const auto& det : results.stopDetections) {
@@ -46,10 +75,6 @@ FrameResults FrameProcessor::processFrame(const cv::Mat& frame,
                     cv::Point(det.box.x, det.box.y - 10),
                     cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 255), 2);
     }
-
-    // pedestrian detection + risk visualization
-    results.pedDetections = pedDetector.detect(results.finalFrame);
-    pedDetector.visualize(results.finalFrame, results.pedDetections);
 
     // pedestrian HUD
     int n_high = 0, n_med = 0, n_low = 0;
