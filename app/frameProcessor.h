@@ -7,11 +7,13 @@
 
 #include "LaneDetect.h"
 #include "yoloDetector.h"
+#include "PedestrianDetector.h"
 
 struct FrameResults {
     cv::Mat finalFrame;
     std::vector<Detection> stopDetections;
     std::vector<Detection> speedDetections;
+    std::vector<ped::TrackedPedestrian> pedDetections;
     std::string warningText;
 };
 
@@ -23,6 +25,7 @@ public:
                               LaneDetect& laneDetect,
                               YoloDetector& stopDetector,
                               YoloDetector& speedDetector,
+                              ped::PedestrianDetector& pedDetector,
                               const HoughParams& params);
 private:
     std::string stableWarning_;
