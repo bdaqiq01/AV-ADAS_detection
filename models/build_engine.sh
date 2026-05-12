@@ -61,6 +61,7 @@ build() {
 
 build "speedlimit.onnx"
 build "stop.onnx"
+build "yolov8n.onnx"
 
 echo ""
 echo "Done. Use these .engine files with TensorRT / DeepStream / Ultralytics."

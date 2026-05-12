@@ -101,3 +101,17 @@ export_onnx.py       # .pt  -> .onnx   (run on dev machine)
 build_engine.sh      # .onnx -> .engine (run on Jetson Orin Nano)
 README.md
 ```
+
+## Pedestrian Detection Engine (Feature 2 — Aditya Jekkula)
+
+| File            | Task   | Classes     |
+| --------------- | ------ | ----------- |
+| `yolov8n.onnx`  | detect | 1 (person)  |
+
+To build the pedestrian engine on the Jetson:
+```bash
+trtexec --onnx=models/yolov8n.onnx \
+        --saveEngine=models/pedestrian.engine \
+        --fp16
+```
+Build time: ~17 minutes. Output: pedestrian.engine (9 MB).
