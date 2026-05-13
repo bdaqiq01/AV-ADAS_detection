@@ -111,8 +111,10 @@ FrameResults FrameProcessor::processFrame(const cv::Mat& frame,
                 cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 0.8,
                 cv::Scalar(0, 255, 255), 2, cv::LINE_AA);
         }
+    }
 
-        // warning text
+    // warning text
+    if (!options_.disableSign) {
         if (!results.stopDetections.empty()) {
             results.warningText = "Slow down to a stop, stop sign detected";
         } else if (!results.speedDetections.empty()) {
