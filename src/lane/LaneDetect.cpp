@@ -110,7 +110,7 @@ cv::Mat LaneDetect::runHough(const cv::Mat& matSrc, const HoughParams& params)
 
     cv::Mat matDisplayRoi;
     cv::cvtColor(matRoi, matDisplayRoi, cv::COLOR_GRAY2BGR);
-    cv::imshow("roi", matDisplayRoi);
+   // cv::imshow("roi", matDisplayRoi);
 
     cv::Mat matColoredSrc = matSrc.clone();
 
