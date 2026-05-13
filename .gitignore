@@ -76,3 +76,9 @@ stop_sign_figures/
 # Executed notebooks (outputs embedded, large diffs)
 *_executed.ipynb
 *.executed.ipynb
+
+# Outputs
+output
+
+# Models (pedestrian.engine is large)
+models/pedestrian.engine
