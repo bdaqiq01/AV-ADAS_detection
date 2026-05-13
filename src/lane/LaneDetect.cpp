@@ -659,7 +659,7 @@ cv::Mat LaneDetect::drawOverlay(
     cv::putText(
         output, 
         direction, 
-        cv::Point(output.cols * 0.85, output.rows * 0.08), 
+        cv::Point(output.cols * 0.83, output.rows * 0.08), 
         cv::FONT_HERSHEY_PLAIN, 
         3.0, 
         cv::Scalar(0, 0, 255),
@@ -704,12 +704,12 @@ LaneDetectionResult LaneDetect::runSlidingWindow(const cv::Mat& frame)
         leftFit = cv::Vec3d(0.0, 0.0, 0.0);
         rightFit = cv::Vec3d(0.0, 0.0, 0.0);
 
-        result.outputFrame = frame;
+        result.outputFrame = frame.clone();
 
         cv::putText(
             result.outputFrame, 
             "Unknown", 
-            cv::Point(result.outputFrame.cols * 0.85, result.outputFrame.rows * 0.08), 
+            cv::Point(result.outputFrame.cols * 0.83, result.outputFrame.rows * 0.08), 
             cv::FONT_HERSHEY_PLAIN, 
             2.6, 
             cv::Scalar(0, 0, 255),
