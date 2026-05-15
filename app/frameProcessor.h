@@ -41,6 +41,11 @@ private:
     std::string candidateWarning_;
     int candidateCount_;
     int stableFramesRequired_;
+    int frameCounter_ = 0;
+
+    std::vector<Detection> cachedStopDetections_;
+    std::vector<Detection> cachedSpeedDetections_;
+    std::vector<ped::TrackedPedestrian> cachedPedDetections_;
 };
 
 #endif

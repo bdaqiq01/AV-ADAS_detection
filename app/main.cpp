@@ -162,7 +162,7 @@ int main(int argc, char** argv)
         "SPEED 70", "SPEED 75"
     };
 
-    YoloDetector speedDetector(speedClasses, 0.90f, 0.45f);
+    YoloDetector speedDetector(speedClasses, 0.75f, 0.45f);
     if (!disableSign) {
         if (!speedDetector.loadEngine("models/speedlimit.engine")) {
             cerr << "Failed to load the speedlimit.engine.\n";

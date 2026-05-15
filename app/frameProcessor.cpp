@@ -71,6 +71,10 @@ FrameResults FrameProcessor::processFrame(const cv::Mat& frame,
 {
     FrameResults results;
 
+    frameCounter_++;
+    bool runSignDetection = (!options_.disableSign && (frameCounter_ - 1) % 3 == 0);
+    bool runPedDetection = (!options_.disablePedestrian && (frameCounter_ - 1) % 2 == 0);
+
     // ── Parallel: lane + stop + speed run simultaneously ─────────────────
     LaneThreadData    laneData{&frame, &laneDetect, laneMode, };
     StopThreadStruct  stopData{&frame, &stopDetector,  {}};
@@ -80,7 +84,7 @@ FrameResults FrameProcessor::processFrame(const cv::Mat& frame,
 
     if (!options_.disableLane) pthread_create(&laneThread, nullptr, laneWorker, &laneData);
 
-    if (!options_.disableSign) {
+    if (runSignDetection) {
         pthread_create(&stopThread,  nullptr, stopWorker,  &stopData);
         pthread_create(&speedThread, nullptr, speedWorker, &speedData);
     }
@@ -92,17 +96,26 @@ FrameResults FrameProcessor::processFrame(const cv::Mat& frame,
         results.finalFrame = frame.clone();
     }
 
-    if (!options_.disableSign) {
+    if (runSignDetection) {
         pthread_join(stopThread,  nullptr);
         pthread_join(speedThread, nullptr);
-        results.stopDetections  = std::move(stopData.detections);
-        results.speedDetections = std::move(speedData.detections);
+        cachedStopDetections_  = std::move(stopData.detections);
+        cachedSpeedDetections_ = std::move(speedData.detections);
+    }
+
+    if (!options_.disableSign) {
+        results.stopDetections  = cachedStopDetections_;
+        results.speedDetections = cachedSpeedDetections_;
     }
 
     // ── Sequential: pedestrian detection after threads join ───────────────
     // TensorRT contexts are not thread-safe — must run sequentially
+    if (runPedDetection) {
+        cachedPedDetections_ = pedDetector.detect(results.finalFrame);
+    }
+
     if (!options_.disablePedestrian) {
-        results.pedDetections = pedDetector.detect(results.finalFrame);
+        results.pedDetections = cachedPedDetections_;
         pedDetector.visualize(results.finalFrame, results.pedDetections);
     }
 
