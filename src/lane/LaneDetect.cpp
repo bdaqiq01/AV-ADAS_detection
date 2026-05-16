@@ -15,6 +15,7 @@ bool LaneDetect::isFitZero(const cv::Vec3d& fit) const
     return fit == cv::Vec3d(0.0, 0.0, 0.0) ? true : false;
 }
 
+
 /**
  * Debug helper to make ROI easy to see
  */
@@ -139,10 +140,10 @@ ROI LaneDetect::getROI(const cv::Mat& src, const ROIConfig roiMod) const
         cv::Point(bottomLeftX, yBottom)     // BL
     };
 
-    cv::Mat mask = cv::Mat::zeros(src.size(), CV_8UC1);
-    cv::fillConvexPoly(mask, trapezoid, cv::Scalar(255));
+    // cv::Mat mask = cv::Mat::zeros(src.size(), CV_8UC1);
+    // cv::fillConvexPoly(mask, trapezoid, cv::Scalar(255));
 
-    return {mask, trapezoid};
+    return {cv::Mat(), trapezoid};
 }
 
 /**
@@ -203,16 +204,25 @@ ROI LaneDetect::processFrame(const cv::Mat& src, const LaneDetectMode mode) cons
 
     // Rectangle based on ROI with additional padding to avoid boundary issues with blue and Canny
     // Reduce processing area without dealing with trapezoid shape
-    const int padding = 15;
-    std::array<cv::Point, 4> boundCorners;
-    for (int i = 0; i < boundCorners.size(); i++) {
-        boundCorners[i] = cv::Point(roi.corners[i].x + padding, roi.corners[i].y + padding);
-    }
-    cv::Rect roiBounds = cv::boundingRect(boundCorners);
+    const int padding = 16;
+    cv::Rect roiBounds = cv::boundingRect(roi.corners);
+    roiBounds.x -= padding / 2;
+    roiBounds.y -= padding / 2;
+    roiBounds.width += padding;
+    roiBounds.height += padding; 
 
     cv::Mat srcCropped = src(roiBounds);
-    cv::Mat cropBlurred;
+   
+    // Store cropped rectangle corner coordinates
+    std::array<cv::Point, 4> croppedCorners;
+    for (int i = 0; i < croppedCorners.size(); i++) {
+        croppedCorners[i] = cv::Point(
+            roi.corners[i].x - roiBounds.x,
+            roi.corners[i].y - roiBounds.y
+        );
+    }
 
+    cv::Mat cropBlurred;
     cv::GaussianBlur(srcCropped, cropBlurred, cv::Size(5, 5), 0);
     
     cv::Mat colorMask = colorThreshold(cropBlurred);
@@ -221,11 +231,9 @@ ROI LaneDetect::processFrame(const cv::Mat& src, const LaneDetectMode mode) cons
     cv::Mat combinedMask;
     cv::bitwise_and(colorMask, edgeMask, combinedMask);
 
-    // Copy mask to full sized frame mask
-    cv::Mat combinedMaskFull = cv::Mat::zeros(src.size(), CV_8UC1);
-    combinedMask.copyTo(combinedMaskFull(roiBounds));
-
-    cv::bitwise_and(combinedMaskFull, roi.mask, roi.mask);
+    roi.mask = std::move(combinedMask);
+    roi.localCorners = croppedCorners;
+    roi.bounds = roiBounds;
 
     return roi;
 }
@@ -241,13 +249,13 @@ cv::Mat LaneDetect::runHough(const cv::Mat& src)
     int minLineLength = 50;
     int maxLineGap = 10;
 
-    cv::Mat matRoi = processFrame(src, LaneDetectMode::HoughLines).mask;
+    ROI roi = processFrame(src, LaneDetectMode::HoughLines);
 
-    cv::Mat matColoredSrc = src.clone();
+    cv::Mat coloredSrc = src.clone();
 
     std::vector<cv::Vec4i> linesP;
     cv::HoughLinesP(
-        matRoi,
+        roi.mask,
         linesP,
         rho,
         CV_PI / thetaDivisor,
@@ -263,24 +271,24 @@ cv::Mat LaneDetect::runHough(const cv::Mat& src)
             continue;
         }
 
-        cv::Point pt1(l[0], l[1]);
-        cv::Point pt2(l[2], l[3]);
+        cv::Point pt1(l[0] + roi.bounds.x, l[1] + roi.bounds.y);
+        cv::Point pt2(l[2] + roi.bounds.x, l[3] + roi.bounds.y);
 
-        cv::line(matColoredSrc, pt1, pt2, cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
+        cv::line(coloredSrc, pt1, pt2, cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
     }
 
-    return matColoredSrc;
+    return coloredSrc;
 }
 
 cv::Mat LaneDetect::birdsEyeTransform(
     const ROI& roi,
-    cv::Size& dstSize)
+    const cv::Size& dstSize)
 {
     std::array<cv::Point2f, 4> src {
-        cv::Point2f(static_cast<float>(roi.corners[0].x), static_cast<float>(roi.corners[0].y)), // TL
-        cv::Point2f(static_cast<float>(roi.corners[1].x), static_cast<float>(roi.corners[1].y)), // TR
-        cv::Point2f(static_cast<float>(roi.corners[2].x), static_cast<float>(roi.corners[2].y)), // BR
-        cv::Point2f(static_cast<float>(roi.corners[3].x), static_cast<float>(roi.corners[3].y))  // BL
+        cv::Point2f(static_cast<float>(roi.localCorners[0].x), static_cast<float>(roi.localCorners[0].y)), // TL
+        cv::Point2f(static_cast<float>(roi.localCorners[1].x), static_cast<float>(roi.localCorners[1].y)), // TR
+        cv::Point2f(static_cast<float>(roi.localCorners[2].x), static_cast<float>(roi.localCorners[2].y)), // BR
+        cv::Point2f(static_cast<float>(roi.localCorners[3].x), static_cast<float>(roi.localCorners[3].y))  // BL
     };
 
     // Bottom width of ROI trapezoid (BR.x - BL.x)
@@ -420,15 +428,24 @@ cv::Vec3d LaneDetect::fitPolynomial(const std::vector<cv::Point>& points) const
  * any cases where the left line and right line are crossed should be rejected
  * and a minimum gap should be maintained
  */
-bool LaneDetect::checkFitValidity(
+FitIdentifier LaneDetect::checkFitValidity(
     const cv::Vec3d& leftFit,
     const cv::Vec3d& rightFit,
     int height) const
 {
     // Zero fit indicates invalid
-    if (isFitZero(leftFit) || isFitZero(rightFit)) {
-        return false;
-    }   
+    bool leftValid = isFitZero(leftFit) ? false : true;
+    bool rightValid = isFitZero(rightFit) ? false : true;
+
+    if (!leftValid && !rightValid) {
+        return FitIdentifier::None;
+    }
+    else if (leftValid && !rightValid) {
+        return FitIdentifier::Left;
+    }
+    else if (!leftValid && rightValid) {
+        return FitIdentifier::Right;
+    }
     
     for (int y = 0; y < height; y += 10) {
         double lx = leftFit[0] * y * y + leftFit[1] * y + leftFit[2];
@@ -436,15 +453,15 @@ bool LaneDetect::checkFitValidity(
 
         // Right lane X values should be greater than left lane
         if (rx <= lx) {
-            return false;
+            return FitIdentifier::None;
         }
         // Enforce a minimum gap
-        if ((rx - lx) < 40.0) {
-            return false;
+        if ((rx - lx) < 75.0) {
+            return FitIdentifier::None;
         }
     }
 
-    return true;
+    return FitIdentifier::Both;
 }
 
 /**
@@ -455,7 +472,7 @@ bool LaneDetect::checkFitValidity(
 std::pair<cv::Vec3d, cv::Vec3d> LaneDetect::slidingWindowSearch(const cv::Mat& binary) const
 {
     int numWindows = 10;
-    int margin = binary.cols * 0.075;
+    int margin = binary.cols * 0.05;
     int recenterThreshold = 75;
     int windowHeight = binary.rows / numWindows;
 
@@ -566,7 +583,7 @@ std::pair<cv::Vec3d, cv::Vec3d> LaneDetect::previousWindowSearch(
     const cv::Vec3d& prevLeftFit,
     const cv::Vec3d& prevRightFit) const
 {
-    int margin = static_cast<int>(binary.cols * 0.075);
+    int margin = static_cast<int>(binary.cols * 0.05);
 
     std::vector<cv::Point> nonZeroPts;
     cv::findNonZero(binary, nonZeroPts);
@@ -619,17 +636,18 @@ cv::Mat LaneDetect::drawOverlay(
     const cv::Vec3d& leftFit,
     const cv::Vec3d& rightFit,
     const std::string& direction,
-    const cv::Size& warpedSize) const
+    const cv::Size& warpedSize,
+    const ROI& roi) const
 {
-    std::vector<cv::Point> leftPts;
-    std::vector<cv::Point> rightPts;
+    std::vector<cv::Point2f> leftPts;
+    std::vector<cv::Point2f> rightPts;
 
     for (int y = 0; y < warpedSize.height; y += 10) {
         double lx = (leftFit[0] * y * y) + (leftFit[1] * y) + leftFit[2];
         double rx = (rightFit[0] * y * y) + (rightFit[1] * y) + rightFit[2];
 
-        cv::Point leftPt(static_cast<int>(lx), y);
-        cv::Point rightPt(static_cast<int>(rx), y);
+        cv::Point2f leftPt(static_cast<float>(lx), static_cast<float>(y));
+        cv::Point2f rightPt(static_cast<float>(rx), static_cast<float>(y));
 
         leftPts.push_back(leftPt);
         rightPts.push_back(rightPt);
@@ -637,24 +655,56 @@ cv::Mat LaneDetect::drawOverlay(
 
     std::reverse(rightPts.begin(), rightPts.end());
 
-    std::vector<cv::Point> lanePts;
-    lanePts.insert(lanePts.end(), leftPts.begin(), leftPts.end());
-    lanePts.insert(lanePts.end(), rightPts.begin(), rightPts.end());
+    std::vector<cv::Point2f> leftPtsUnwarped;
+    leftPtsUnwarped.reserve(leftPts.size());
+    cv::perspectiveTransform(leftPts, leftPtsUnwarped, inverseTransformMatrix);
 
-    cv::Mat laneWarped = cv::Mat::zeros(warpedSize, CV_8UC3);
-    cv::fillPoly(laneWarped, std::vector<std::vector<cv::Point>>{lanePts}, cv::Scalar(0, 255, 0));
+    std::vector<cv::Point2f> rightPtsUnwarped;
+    rightPtsUnwarped.reserve(rightPts.size());
+    cv::perspectiveTransform(rightPts, rightPtsUnwarped, inverseTransformMatrix);
 
-    // Draws differently colored left and right lines
-    if (debug) {
-        cv::polylines(laneWarped, leftPts, false, cv::Scalar(255, 0, 0), 10);
-        cv::polylines(laneWarped, rightPts, false, cv::Scalar(0, 0, 255), 10);
+    std::vector<cv::Point> leftPtsRounded;
+    leftPtsRounded.reserve(leftPtsUnwarped.size());
+    for (cv::Point2f& pt : leftPtsUnwarped) {
+        leftPtsRounded.push_back(
+            cv::Point(cvRound(pt.x + roi.bounds.x), cvRound(pt.y + roi.bounds.y))
+        );
+    }
+    std::vector<cv::Point> rightPtsRounded;
+    rightPtsRounded.reserve(rightPtsUnwarped.size());
+    for (cv::Point2f& pt : rightPtsUnwarped) {
+        rightPtsRounded.push_back(
+            cv::Point(cvRound(pt.x + roi.bounds.x), cvRound(pt.y + roi.bounds.y))
+        );
     }
 
-    cv::Mat laneUnwarped;
-    cv::warpPerspective(laneWarped, laneUnwarped, inverseTransformMatrix, src.size());
+    std::vector<cv::Point> lanePts;
+    lanePts.insert(lanePts.end(), leftPtsRounded.begin(), leftPtsRounded.end());
+    lanePts.insert(lanePts.end(), rightPtsRounded.begin(), rightPtsRounded.end());
+
+    cv::Mat overlay = cv::Mat::zeros(src.size(), CV_8UC3);
+    //cv::Mat overlay = src.clone();
+
+    if (!isFitZero(leftFit) && !isFitZero(rightFit)) {
+        cv::fillPoly(
+            overlay, 
+            std::vector<std::vector<cv::Point>>{lanePts}, 
+            cv::Scalar(0, 255, 0)
+        );
+    }
+
+    // Draws differently colored left and right lines
+    if (!isFitZero(leftFit)) {
+        cv::polylines(overlay, leftPtsRounded, false, cv::Scalar(255, 0, 255), 6);
+    }
+    if (!isFitZero(rightFit)) {
+        cv::polylines(overlay, rightPtsRounded, false, cv::Scalar(0, 0, 255), 6);
+    }
+    // cv::Mat laneUnwarped;
+    // cv::warpPerspective(laneWarped, laneUnwarped, inverseTransformMatrix, src.size());
 
     cv::Mat output;
-    cv::addWeighted(src, 1.0, laneUnwarped, 0.35, 0.0, output);
+    cv::addWeighted(src, 1.0, overlay, 0.35, 0.0, output);
 
     cv::putText(
         output, 
@@ -683,24 +733,38 @@ LaneDetectionResult LaneDetect::runSlidingWindow(const cv::Mat& frame)
         cv::imshow("ROI overlay", roiPreview);
     }
 
-    cv::Size frameSize(frame.cols, frame.rows);
+    //cv::Size frameSize(frame.cols, frame.rows);
+    cv::Size warpedSize(result.roi.bounds.width, result.roi.bounds.height);
 
-    result.warpedBinary = birdsEyeTransform(result.roi, frameSize);
+    result.warpedBinary = birdsEyeTransform(result.roi, warpedSize);
 
-    cv::Vec3d leftFit, rightFit;
+    cv::Vec3d leftFit(0.0, 0.0, 0.0);
+    cv::Vec3d rightFit(0.0, 0.0, 0.0);
     if (hasPrevFits) {
         std::tie(leftFit, rightFit) =
             previousWindowSearch(result.warpedBinary, prevLeftFit, prevRightFit);
 
-        if (!checkFitValidity(leftFit, rightFit, result.warpedBinary.rows)) {
-            std::tie(leftFit, rightFit) = slidingWindowSearch(result.warpedBinary);
+        FitIdentifier fitValidity = checkFitValidity(leftFit, rightFit, result.warpedBinary.rows);
+        if (fitValidity == FitIdentifier::None) {
+            misfitCount++;
+            if (misfitCount > 2) {
+                std::tie(leftFit, rightFit) = slidingWindowSearch(result.warpedBinary);
+                if (checkFitValidity(leftFit, rightFit, result.warpedBinary.rows) == FitIdentifier::Both) {
+                    hasPrevFits = false;
+                    misfitCount = 0;
+                }
+            }
+        }
+        else if (fitValidity == FitIdentifier::Both) {
+            misfitCount = 0;
         }
     } 
     else {
         std::tie(leftFit, rightFit) = slidingWindowSearch(result.warpedBinary);
+        misfitCount = 0;
     }
 
-    if (!checkFitValidity(leftFit, rightFit, result.warpedBinary.rows)) {
+    if (checkFitValidity(leftFit, rightFit, result.warpedBinary.rows) == FitIdentifier::None) {
         leftFit = cv::Vec3d(0.0, 0.0, 0.0);
         rightFit = cv::Vec3d(0.0, 0.0, 0.0);
 
@@ -730,7 +794,8 @@ LaneDetectionResult LaneDetect::runSlidingWindow(const cv::Mat& frame)
         leftFit, 
         rightFit, 
         direction, 
-        result.warpedBinary.size()
+        result.warpedBinary.size(),
+        result.roi
     );
 
     return result;
