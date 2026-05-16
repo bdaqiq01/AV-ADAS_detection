@@ -13,6 +13,13 @@ enum class LaneDetectMode {
     SlidingWindow
 };
 
+enum class FitIdentifier {
+    Left,
+    Right,
+    Both,
+    None
+};
+
 struct ROIConfig {
     double yTop;
     double yBottom;
@@ -22,27 +29,12 @@ struct ROIConfig {
     double bottomRightX;
 };
 
-struct LaneSmoother {
-    bool hasPrev = false;
-
-    cv::Vec3d leftFit;
-    cv::Vec3d rightFit;
-
-    double alpha = 0.85;
-    int missedFrames = 0;
-    int maxMissedFrames = 5;
-};
-
 struct ROI {
     cv::Mat mask;
     std::array<cv::Point, 4> corners;
+    std::array<cv::Point, 4> localCorners;
+    cv::Rect bounds;
 };
-
-// struct TransformResults {
-//     cv::Mat warped; // transformed image
-//     cv::Mat M;      // trapezoid -> rectangle
-//     cv::Mat invM;   // inverse transform
-// };
 
 struct LaneDetectionResult {
     ROI roi;
@@ -71,6 +63,7 @@ private:
     cv::Vec3d prevRightFit = cv::Vec3d(0.0, 0.0, 0.0);
     cv::Vec3d prevLeftFit = cv::Vec3d(0.0, 0.0, 0.0);
     bool hasPrevFits = false;
+    int misfitCount = 0;
 
     cv::Mat transformMatrix;
     cv::Mat inverseTransformMatrix;
@@ -87,7 +80,7 @@ private:
 
     cv::Mat birdsEyeTransform(
         const ROI& roi,
-        cv::Size& dstSize);
+        const cv::Size& dstSize);
 
     cv::Mat generateHistogram(const cv::Mat& warped) const;
     std::pair<int, int> getHistogramPeaks(const cv::Mat& histogram) const;
@@ -109,13 +102,14 @@ private:
         const cv::Vec3d& leftFit,
         const cv::Vec3d& rightFit,
         const std::string& direction,
-        const cv::Size& warpedSize) const;
+        const cv::Size& warpedSize,
+        const ROI& roi) const;
 
     cv::Mat drawROIOverlay(
         const cv::Mat& frame,
         const ROI& roi) const;
 
-    bool checkFitValidity(
+    FitIdentifier checkFitValidity(
         const cv::Vec3d& leftFit,
         const cv::Vec3d& rightFit,
         int height) const;
