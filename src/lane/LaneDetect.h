@@ -112,6 +112,7 @@ private:
     FitIdentifier checkFitValidity(
         const cv::Vec3d& leftFit,
         const cv::Vec3d& rightFit,
+        int width,
         int height) const;
 };
 

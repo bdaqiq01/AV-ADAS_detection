@@ -431,11 +431,12 @@ cv::Vec3d LaneDetect::fitPolynomial(const std::vector<cv::Point>& points) const
 FitIdentifier LaneDetect::checkFitValidity(
     const cv::Vec3d& leftFit,
     const cv::Vec3d& rightFit,
+    int width,
     int height) const
 {
     // Zero fit indicates invalid
-    bool leftValid = isFitZero(leftFit) ? false : true;
-    bool rightValid = isFitZero(rightFit) ? false : true;
+    bool leftValid = !isFitZero(leftFit);
+    bool rightValid = !isFitZero(rightFit);
 
     if (!leftValid && !rightValid) {
         return FitIdentifier::None;
@@ -446,6 +447,10 @@ FitIdentifier LaneDetect::checkFitValidity(
     else if (!leftValid && rightValid) {
         return FitIdentifier::Right;
     }
+
+    const double minGap = width * 0.15;
+    const double maxGap = width * 0.9;
+    const double xMargin = width * 0.15;
     
     for (int y = 0; y < height; y += 10) {
         double lx = leftFit[0] * y * y + leftFit[1] * y + leftFit[2];
@@ -455,8 +460,19 @@ FitIdentifier LaneDetect::checkFitValidity(
         if (rx <= lx) {
             return FitIdentifier::None;
         }
-        // Enforce a minimum gap
-        if ((rx - lx) < 75.0) {
+        // Enforce a minimum gap at base
+        if (y < 3 && (rx - lx) < minGap) {
+            return FitIdentifier::None;
+        }
+        // Enforce a maximum gap
+        if (y > 8 && (rx - lx) > maxGap) {
+            return FitIdentifier::None;
+        }
+        // Offscreen tolerance
+        if (lx < -xMargin || lx > width + xMargin) {
+            return FitIdentifier::None;
+        }
+        if (rx < -xMargin || rx > width + xMargin) {
             return FitIdentifier::None;
         }
     }
@@ -737,34 +753,30 @@ LaneDetectionResult LaneDetect::runSlidingWindow(const cv::Mat& frame)
     cv::Size warpedSize(result.roi.bounds.width, result.roi.bounds.height);
 
     result.warpedBinary = birdsEyeTransform(result.roi, warpedSize);
+    int warpedH = result.warpedBinary.rows;
+    int warpedW = result.warpedBinary.cols;
 
     cv::Vec3d leftFit(0.0, 0.0, 0.0);
     cv::Vec3d rightFit(0.0, 0.0, 0.0);
+    FitIdentifier fitValidity = FitIdentifier::None;
+
     if (hasPrevFits) {
         std::tie(leftFit, rightFit) =
             previousWindowSearch(result.warpedBinary, prevLeftFit, prevRightFit);
 
-        FitIdentifier fitValidity = checkFitValidity(leftFit, rightFit, result.warpedBinary.rows);
-        if (fitValidity == FitIdentifier::None) {
+        fitValidity = checkFitValidity(leftFit, rightFit, warpedW, warpedH);
+        if (fitValidity != FitIdentifier::Both) {
             misfitCount++;
-            if (misfitCount > 2) {
-                std::tie(leftFit, rightFit) = slidingWindowSearch(result.warpedBinary);
-                if (checkFitValidity(leftFit, rightFit, result.warpedBinary.rows) == FitIdentifier::Both) {
-                    hasPrevFits = false;
-                    misfitCount = 0;
-                }
-            }
-        }
-        else if (fitValidity == FitIdentifier::Both) {
-            misfitCount = 0;
+            std::tie(leftFit, rightFit) = slidingWindowSearch(result.warpedBinary);
+            fitValidity = checkFitValidity(leftFit, rightFit, warpedW, warpedH);
         }
     } 
     else {
         std::tie(leftFit, rightFit) = slidingWindowSearch(result.warpedBinary);
-        misfitCount = 0;
+        fitValidity = checkFitValidity(leftFit, rightFit, warpedW, warpedH);
     }
 
-    if (checkFitValidity(leftFit, rightFit, result.warpedBinary.rows) == FitIdentifier::None) {
+    if (checkFitValidity(leftFit, rightFit, warpedW, warpedH) == FitIdentifier::None) {
         leftFit = cv::Vec3d(0.0, 0.0, 0.0);
         rightFit = cv::Vec3d(0.0, 0.0, 0.0);
 
@@ -786,6 +798,7 @@ LaneDetectionResult LaneDetect::runSlidingWindow(const cv::Mat& frame)
     prevLeftFit = leftFit;
     prevRightFit = rightFit;
     hasPrevFits = true;
+    misfitCount = 0;
 
     std::string direction = getTurnDirection(leftFit, rightFit);
 
@@ -811,7 +824,7 @@ std::string LaneDetect::getTurnDirection(
     const cv::Vec3d& rightFit) const
 {
     // Used a graphing calculator to see what looked reasonable
-    float curvatureThreshold = 0.00015;
+    float curvatureThreshold = 0.0002;
 
     bool leftValid = isFitZero(leftFit) ? false : true;
     bool rightValid = isFitZero(rightFit) ? false : true;
