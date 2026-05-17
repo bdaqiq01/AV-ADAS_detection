@@ -386,7 +386,7 @@ cv::Vec3d LaneDetect::fitPolynomial(const std::vector<cv::Point>& points) const
 
         // 0.25 near the top, 1.0 near the base.
         const double normalizedY = maxY > 0.0 ? y / maxY : 1.0;
-        const double w = 0.25 + 0.75 * normalizedY * normalizedY;
+        const double w = 0.1 + 0.9 * normalizedY * normalizedY;
 
         const double y2 = y * y;
         const double y3 = y2 * y;
@@ -760,7 +760,7 @@ LaneDetectionResult LaneDetect::runSlidingWindow(const cv::Mat& frame)
     cv::Vec3d rightFit(0.0, 0.0, 0.0);
     FitIdentifier fitValidity = FitIdentifier::None;
 
-    if (hasPrevFits) {
+    if (hasPrevFits && misfitCount < 2) {
         std::tie(leftFit, rightFit) =
             previousWindowSearch(result.warpedBinary, prevLeftFit, prevRightFit);
 
@@ -823,11 +823,10 @@ std::string LaneDetect::getTurnDirection(
     const cv::Vec3d& leftFit,
     const cv::Vec3d& rightFit) const
 {
-    // Used a graphing calculator to see what looked reasonable
-    float curvatureThreshold = 0.0002;
+    float curvatureThreshold = 0.00125;
 
-    bool leftValid = isFitZero(leftFit) ? false : true;
-    bool rightValid = isFitZero(rightFit) ? false : true;
+    bool leftValid = !isFitZero(leftFit);
+    bool rightValid = !isFitZero(rightFit);
 
     if (!leftValid && !rightValid) {
         return "Unknown";
