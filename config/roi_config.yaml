@@ -1,0 +1,17 @@
+%YAML:1.0
+---
+profiles:
+  # Personal dash cam
+  - y_top: 0.675
+    y_bottom: 0.925
+    top_left_x: 0.42
+    top_right_x: 0.55
+    bottom_left_x: 0.175
+    bottom_right_x: 0.775
+  # Sam videos
+  - y_top: 0.58
+    y_bottom: 0.8
+    top_left_x: 0.422
+    top_right_x: 0.535
+    bottom_left_x: 0.229
+    bottom_right_x: 0.725

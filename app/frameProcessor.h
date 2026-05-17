@@ -7,6 +7,7 @@
 
 #include "LaneDetect.h"
 #include "yoloDetector.h"
+#include "LaneDetect.h"
 #include "PedestrianDetector.h"
 
 struct FrameResults {
@@ -17,17 +18,25 @@ struct FrameResults {
     std::string warningText;
 };
 
+struct FrameProcessorOptions {
+    bool disableLane = false;
+    bool disableSign = false;
+    bool disablePedestrian = false;
+};
+
 class FrameProcessor {
 public:
-    FrameProcessor();
+    explicit FrameProcessor(const FrameProcessorOptions& options = {});
+
     ~FrameProcessor() = default;
     FrameResults processFrame(const cv::Mat& frame,
                               LaneDetect& laneDetect,
+                              LaneDetectMode &laneMode,
                               YoloDetector& stopDetector,
                               YoloDetector& speedDetector,
-                              ped::PedestrianDetector& pedDetector,
-                              const HoughParams& params);
+                              ped::PedestrianDetector& pedDetector);
 private:
+    FrameProcessorOptions options_;
     std::string stableWarning_;
     std::string candidateWarning_;
     int candidateCount_;
